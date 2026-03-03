@@ -1,11 +1,12 @@
 """
 PCAP upload endpoint.
 
-  POST /api/captures          – upload a PCAP file, queue analysis
+  POST /api/captures          – upload a PCAP file, queue analysis (disabled in demo mode)
   GET  /api/captures          – list user's captures
   GET  /api/captures/{id}     – status + results for a capture
   GET  /api/captures/{id}/export  – full JSON export (includes raw creds)
   DELETE /api/captures/{id}   – delete a capture and its file
+  GET  /api/demo-token        – return a JWT for the demo user (demo mode only)
 """
 from __future__ import annotations
 
@@ -19,13 +20,32 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.auth.jwt_handler import get_current_user_id
+from app.auth.jwt_handler import create_access_token, get_current_user_id
 from app.config import settings
 from app.database import get_db
-from app.models import Capture
+from app.models import Capture, User
 from app.tasks.analysis_tasks import analyze_pcap
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Demo-mode token endpoint
+# ---------------------------------------------------------------------------
+
+@router.get("/demo-token")
+def demo_token(db: Session = Depends(get_db)):
+    """Return a JWT for the shared demo user. Only works when demo_mode=true."""
+    if not settings.demo_mode:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    from app.demo_data import DEMO_USER_EMAIL
+    user = db.query(User).filter(User.email == DEMO_USER_EMAIL).first()
+    if not user:
+        raise HTTPException(status_code=503, detail="Demo data not yet seeded — try again in a moment")
+
+    token = create_access_token(user.id, user.email)
+    return {"token": token, "demo_mode": True}
 
 UPLOAD_DIR = Path("/app/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -47,6 +67,12 @@ async def upload_capture(
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
+    if settings.demo_mode:
+        raise HTTPException(
+            status_code=403,
+            detail="File upload is disabled in demo mode. Browse the sample captures instead.",
+        )
+
     suffix = Path(file.filename or "file.pcap").suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(

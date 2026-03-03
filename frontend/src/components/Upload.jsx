@@ -1,114 +1,93 @@
-import { useCallback, useState } from 'react'
-import { useDropzone } from 'react-dropzone'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import api from '../api/client'
 
-const ACCEPTED = { 'application/octet-stream': ['.pcap', '.pcapng', '.cap'] }
-const MAX_MB = 200
+const SAMPLE_DESCRIPTIONS = {
+  'cobalt-strike-beacon.pcap':    'Cobalt Strike-style C2 implant pinging home every 60 s with captured NTLMv2 hashes.',
+  'dns-exfiltration-iodine.pcap': 'iodine DNS-tunnel exfiltrating ~300 KB of data via high-entropy TXT queries.',
+  'cleartext-credentials.pcap':   'Five FTP accounts and two HTTP Basic Auth logins transmitted in the clear.',
+  'lateral-movement-smb.pcap':    'Six NTLMv2 hashes collected during SMB lateral movement + a Meterpreter C2 channel.',
+  'network-health-audit.pcap':    'Clean-ish traffic with DNS timeouts, stale NXDOMAIN lookups, and a deprecated TLS 1.0 session.',
+}
+
+const SEVERITY_TAG = {
+  'cobalt-strike-beacon.pcap':    { label: 'CRITICAL', cls: 'bg-red-900/40 text-red-300 border-red-700/50' },
+  'dns-exfiltration-iodine.pcap': { label: 'CRITICAL', cls: 'bg-red-900/40 text-red-300 border-red-700/50' },
+  'cleartext-credentials.pcap':   { label: 'HIGH',     cls: 'bg-orange-900/40 text-orange-300 border-orange-700/50' },
+  'lateral-movement-smb.pcap':    { label: 'CRITICAL', cls: 'bg-red-900/40 text-red-300 border-red-700/50' },
+  'network-health-audit.pcap':    { label: 'INFO',     cls: 'bg-blue-900/40 text-blue-300 border-blue-700/50' },
+}
 
 export default function Upload() {
-  const [uploading, setUploading] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const [error, setError] = useState(null)
-  const navigate = useNavigate()
+  const [captures, setCaptures] = useState([])
+  const [loading, setLoading] = useState(true)
 
-  const onDrop = useCallback(async (accepted) => {
-    if (!accepted.length) return
-    const file = accepted[0]
-    if (file.size > MAX_MB * 1024 * 1024) {
-      setError(`File too large. Maximum size is ${MAX_MB} MB.`)
-      return
-    }
-
-    setUploading(true)
-    setError(null)
-    setProgress(0)
-
-    const form = new FormData()
-    form.append('file', file)
-
-    try {
-      // Do NOT set Content-Type manually — axios detects FormData and lets the
-      // browser attach the correct multipart boundary automatically.
-      const { data } = await api.post('/captures', form, {
-        onUploadProgress: (e) => setProgress(Math.round((e.loaded * 100) / (e.total || 1))),
-      })
-      navigate(`/capture/${data.id}`)
-    } catch (err) {
-      const detail = err.response?.data?.detail
-      const message = !detail
-        ? 'Upload failed — server did not respond. Is the backend running?'
-        : Array.isArray(detail)
-          ? detail.map(d => d.msg || JSON.stringify(d)).join('; ')
-          : String(detail)
-      setError(message)
-      setUploading(false)
-    }
-  }, [navigate])
-
-  const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
-    onDrop,
-    accept: ACCEPTED,
-    maxFiles: 1,
-    disabled: uploading,
-  })
+  useEffect(() => {
+    api.get('/captures').then(r => {
+      setCaptures(r.data)
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [])
 
   return (
     <div className="min-h-full flex flex-col items-center justify-center p-8">
       <div className="w-full max-w-2xl">
-        <h1 className="text-2xl font-bold text-white mb-2">Upload PCAP</h1>
+        <h1 className="text-2xl font-bold text-white mb-2">Sample PCAP Captures</h1>
         <p className="text-gray-400 text-sm mb-8">
-          Drop a Wireshark capture file to run automated threat analysis.
-          Supports <code className="text-gray-300">.pcap</code>, <code className="text-gray-300">.pcapng</code>, and <code className="text-gray-300">.cap</code> formats up to {MAX_MB} MB.
+          Select a capture below to explore the automated threat-analysis results.
+          Upload is disabled in demo mode —{' '}
+          <a
+            href="https://github.com/BardSec/-cap-detector"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-brand-400 hover:underline"
+          >
+            get the full version
+          </a>
+          {' '}to analyze your own files.
         </p>
 
-        {/* Drop zone */}
-        <div
-          {...getRootProps()}
-          className={`
-            relative border-2 border-dashed rounded-2xl p-16 text-center cursor-pointer transition
-            ${isDragActive && !isDragReject ? 'border-brand-500 bg-brand-600/10' : ''}
-            ${isDragReject ? 'border-red-500 bg-red-900/10' : ''}
-            ${!isDragActive ? 'border-gray-700 hover:border-gray-600 bg-gray-900 hover:bg-gray-900/80' : ''}
-            ${uploading ? 'opacity-50 cursor-not-allowed' : ''}
-          `}
-        >
-          <input {...getInputProps()} />
-
-          {uploading ? (
-            <div className="space-y-4">
-              <div className="w-12 h-12 mx-auto border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
-              <p className="text-white font-medium">Uploading… {progress}%</p>
-              <div className="w-full bg-gray-800 rounded-full h-2">
-                <div
-                  className="bg-brand-500 h-2 rounded-full transition-all"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-800 flex items-center justify-center">
-                <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                    d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                </svg>
-              </div>
-              <p className="text-white font-medium mb-1">
-                {isDragActive ? 'Drop it here' : 'Drag & drop your PCAP file'}
-              </p>
-              <p className="text-gray-500 text-sm">or click to browse</p>
-            </>
-          )}
-        </div>
-
-        {error && (
-          <div className="mt-4 p-4 bg-red-900/30 border border-red-700 rounded-xl text-red-300 text-sm">
-            {error}
+        {loading && (
+          <div className="flex items-center justify-center py-16">
+            <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
           </div>
         )}
 
-        {/* What we detect */}
+        <div className="space-y-3">
+          {captures.map(c => {
+            const tag = SEVERITY_TAG[c.filename] || { label: 'INFO', cls: 'bg-gray-800 text-gray-400 border-gray-700' }
+            const desc = SAMPLE_DESCRIPTIONS[c.filename] || 'Pre-analyzed PCAP capture.'
+            return (
+              <Link
+                key={c.id}
+                to={`/capture/${c.id}`}
+                className="block bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-600 hover:bg-gray-900/80 transition group"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded border ${tag.cls}`}>
+                        {tag.label}
+                      </span>
+                      <h3 className="text-sm font-semibold text-white truncate group-hover:text-brand-400 transition">
+                        {c.filename}
+                      </h3>
+                    </div>
+                    <p className="text-xs text-gray-400 leading-relaxed">{desc}</p>
+                    <p className="text-xs text-gray-600 mt-2">
+                      {c.packet_count?.toLocaleString()} packets &middot; {(c.file_size / 1024 / 1024).toFixed(1)} MB
+                    </p>
+                  </div>
+                  <svg className="w-5 h-5 text-gray-600 group-hover:text-brand-400 transition shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </Link>
+            )
+          })}
+        </div>
+
+        {/* Detection capabilities */}
         <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 gap-4">
           {DETECTIONS.map((d) => (
             <div key={d.title} className="bg-gray-900 border border-gray-800 rounded-xl p-4">

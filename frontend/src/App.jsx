@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Routes, Route, Navigate, useSearchParams } from 'react-router-dom'
-import Login from './components/Login'
 import Layout from './components/Layout'
 import Upload from './components/Upload'
 import Dashboard from './components/Dashboard'
+import api from './api/client'
 
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem('token'))
@@ -19,12 +19,23 @@ export default function App() {
     }
   }, [searchParams, setSearchParams])
 
+  // Demo mode: auto-fetch a demo token if we have none
+  useEffect(() => {
+    if (token) return
+    api.get('/demo-token').then(r => {
+      if (r.data.token) {
+        localStorage.setItem('token', r.data.token)
+        setToken(r.data.token)
+      }
+    }).catch(() => {})
+  }, [token])
+
   const logout = () => {
     localStorage.removeItem('token')
     setToken(null)
   }
 
-  if (!token) return <Login />
+  if (!token) return null
 
   return (
     <Layout onLogout={logout}>
