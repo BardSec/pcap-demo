@@ -23,6 +23,14 @@ except Exception as exc:
     )
     sys.exit(1)
 
+if settings.demo_mode:
+    try:
+        from app.demo_data import seed_demo_data
+        seed_demo_data()
+        logger.info("Demo mode: sample captures seeded.")
+    except Exception as exc:
+        logger.warning("Demo seeding failed (non-fatal): %s", exc)
+
 app = FastAPI(
     title="PCAP Bloodhound",
     description="Network threat-hunting tool for K-12 practitioners",

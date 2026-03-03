@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # Upload limits
     max_upload_mb: int = 200
 
+    # Demo mode — disables login, upload, and seeds sample captures
+    demo_mode: bool = True
+
     @property
     def allowed_domain_list(self) -> list[str]:
         if not self.allowed_domains:
